@@ -1,0 +1,298 @@
+setClass("Cohesin", representation(
+    processivity="numeric", 
+    alive="numeric", 
+    left_pos="numeric", 
+    right_pos="numeric",
+    left_blocked="logical",
+    right_blocked="logical",
+    left_ctcf_captured="logical",
+    right_ctcf_captured="logical",
+    extruded_beads="logical"))
+
+
+setMethod("show",
+          "Cohesin",
+          function(object) {
+              cat("Lived ", object@alive, " of ", object@processivity, " - ", sep="")
+              left_blocked_str <- paste(ifelse(object@left_blocked, " (Cohesin blocked)", ""), ifelse(object@left_ctcf_captured, " (CTCF captured)", ""))
+              right_blocked_str <- paste(ifelse(object@right_blocked, " (Cohesin Blocked)", ""), ifelse(object@right_ctcf_captured, " (CTCF captured)", ""))
+              cat("Anchors: ", object@left_pos, left_blocked_str, ", ", object@right_pos, right_blocked_str, " - ", sep="")
+              cat("Extruded beads:", which(object@extruded_beads), "\n")
+          }
+)
+
+Cohesin <- function(processivity, polymer_length, alive=0) {
+    loading_pos <- sample(1:polymer_length, 1)  
+    new("Cohesin", processivity=processivity, alive=alive, left_pos=loading_pos, right_pos=loading_pos, 
+        left_blocked=FALSE, right_blocked=FALSE, extruded_beads=rep_len(FALSE, polymer_length),
+        left_ctcf_captured=FALSE, right_ctcf_captured=FALSE)
+}
+
+setClass("Sim", representation(polymer_length="numeric",
+                               bead_size="numeric",
+                               cohesins="list", 
+                               plus_ctcfs="data.frame",
+                               minus_ctcfs="data.frame",
+                               occupied_positions="logical",
+                               processivity="numeric",
+                               ctcf_capture_rate="numeric",
+                               ctcf_stabilization_factor="numeric",
+                               extruded_beads="logical"))
+
+Sim <- function(n, polymer_length_bp=1e6, processivity_bp=150e3, bead_size = 1e3, 
+                ctcf_capture_rate=0.25, ctcf_stabilization_factor=4,
+                plus_ctcfs=NULL,
+                minus_ctcfs=NULL) {
+    # Define polymer_length and processity in bead units
+    polymer_length <- polymer_length_bp / bead_size
+    processivity <- processivity_bp / bead_size
+    occupied_positions <- rep(FALSE, polymer_length)
+    alive <- 0
+    cohesins <- times(n) %do% {
+        collision <- TRUE
+        while (collision) {
+            coh <- Cohesin(processivity=processivity, polymer_length=polymer_length, alive=alive)
+            if (!occupied_positions[coh@left_pos]) collision <- FALSE
+        }
+        occupied_positions[coh@left_pos] <- TRUE
+        alive <- round(alive + processivity/n)
+        coh    
+    }
+    empty_ctcf_df <- data.frame(matrix(nrow = 0, ncol = 4))
+    colnames(empty_ctcf_df) <- c("pos_bp", "pos", "occupancy_rate", "bound_cohesin")
+    if(is.null(plus_ctcfs)) plus_ctcfs <- empty_ctcf_df
+    if(is.null(minus_ctcfs)) minus_ctcfs <- empty_ctcf_df
+    new("Sim", 
+        polymer_length=polymer_length, 
+        bead_size=bead_size,
+        cohesins=cohesins, 
+        processivity=processivity,
+        occupied_positions=occupied_positions,
+        plus_ctcfs=plus_ctcfs,
+        minus_ctcfs=minus_ctcfs,
+        ctcf_capture_rate=ctcf_capture_rate,
+        ctcf_stabilization_factor=ctcf_stabilization_factor,
+        extruded_beads=rep(FALSE, polymer_length))
+}
+
+
+
+
+setMethod("show",
+          "Sim",
+          function(object) {
+              cat("Cohesin positions:", which(object@occupied_positions), "\n")
+              cat("Extruded beads:", sum(object@extruded_beads), "of", object@polymer_length, "\n")
+              cat("Plus CTCF positions (bound fraction): ", paste(object@plus_ctcfs$pos_bp, 
+                                                                  "(", object@plus_ctcfs$occupancy_rate, ") ", sep=""), "\n")
+              cat("Minus CTCF positions (bound fraction): ", paste(object@minus_ctcfs$pos_bp, 
+                                                                   "(", object@minus_ctcfs$occupancy_rate, ") ", sep=""), "\n")
+              cat("Individual cohesins:\n")
+              sapply(object@cohesins, show)
+              cat("-------\n")
+          }
+)
+
+setGeneric("set_ctcfs", function(object, orientation, pos_bp, occupancy_rate) {
+    standardGeneric("set_ctcfs")
+})
+
+setMethod("set_ctcfs",
+          "Sim",
+          function(object, orientation, pos_bp, occupancy_rate=1) {
+              if (orientation=="+") {
+                  object@plus_ctcfs <- rbind(object@plus_ctcfs,
+                                             data.frame(pos_bp=pos_bp, 
+                                                        pos=ceiling(pos_bp/object@bead_size), 
+                                                        occupancy_rate=occupancy_rate,
+                                                        bound_cohesin=FALSE)) %>%
+                      arrange(desc(pos_bp))
+              }
+              if (orientation=="-") {
+                  object@minus_ctcfs <- rbind(object@minus_ctcfs,
+                                              data.frame(pos_bp=pos_bp, 
+                                                         pos=ceiling(pos_bp/object@bead_size), 
+                                                         occupancy_rate=occupancy_rate,
+                                                         bound_cohesin=FALSE)) %>%
+                      arrange(pos_bp)
+              }
+              object
+          })
+
+setGeneric("advance", function(object) {
+    standardGeneric("advance")
+})
+
+setMethod("advance", "Sim",
+          function(object) {
+              occupied_positions <- object@occupied_positions
+              for (i in 1:length(object@cohesins)) {
+                  coh <- object@cohesins[[i]]
+                  coh@alive <- coh@alive + 1
+                  if (coh@alive >= coh@processivity) {
+                      #cat ("Cohesin fell off!\n")
+                      occupied_positions[coh@left_pos] <- FALSE
+                      occupied_positions[coh@right_pos] <- FALSE
+                      # Generate a new one (making sure it doesn't overlap an existing one)
+                      collision <- TRUE
+                      while (collision) {
+                          coh <- Cohesin(processivity = object@processivity, 
+                                         polymer_length = object@polymer_length)
+                          if (!occupied_positions[coh@left_pos]) collision <- FALSE
+                      }
+                      occupied_positions[coh@left_pos] <- TRUE
+                  } else {
+                      ## LEFT
+                      new_left <- coh@left_pos - 1
+                      if (!coh@left_ctcf_captured) {
+                          # Left side captured by a CTCF?
+                          for (idx in which(object@plus_ctcfs$pos == new_left & !object@plus_ctcfs$bound_cohesin)) {
+                              #cat("Checking for CTCF capture (pos = ", object@plus_ctcfs[idx, "pos_bp"], ")", sep="")
+                              if (runif(1) < object@plus_ctcfs$occupancy_rate[idx] * object@ctcf_capture_rate) {
+                                  #cat("Captured!")
+                                  object@plus_ctcfs$bound_cohesin[idx] <- TRUE
+                                  coh@left_ctcf_captured <- TRUE
+                                  coh@processivity <- object@processivity * object@ctcf_stabilization_factor
+                              }
+                          }
+                          
+                          if (sum(occupied_positions[new_left])==0 & new_left>=1) {
+                              # Note: the sum allows for checking occupied_positions[0]
+                              coh@left_blocked <- FALSE
+                              if (coh@left_pos!=coh@right_pos) occupied_positions[coh@left_pos] <- FALSE
+                              coh@left_pos <- new_left
+                              occupied_positions[new_left] <- TRUE
+                          } else {
+                              coh@left_blocked <- TRUE
+                          } 
+                      }
+                      
+                      ## RIGHT
+                      new_right <- coh@right_pos + 1
+                      if (!coh@right_ctcf_captured) {
+                          
+                          # Right side captured by a CTCF?
+                          for (idx in which(object@minus_ctcfs$pos == new_right & !object@minus_ctcfs$bound_cohesin)) {
+                              #cat("Checking for CTCF capture (pos = ", object@minus_ctcfs[idx, "pos_bp"], ")", sep="")
+                              if (runif(1) < object@minus_ctcfs$occupancy_rate[idx] * object@ctcf_capture_rate) {
+                                  #cat("Captured!")
+                                  object@minus_ctcfs$bound_cohesin[idx] <- TRUE
+                                  coh@right_ctcf_captured <- TRUE
+                                  coh@processivity <- object@processivity * object@ctcf_stabilization_factor
+                              }
+                          }
+                          
+                          if (sum(occupied_positions[new_right])==0  & new_right<=object@polymer_length) {      
+                              coh@right_blocked <- FALSE
+                              if (coh@left_pos!=coh@right_pos) occupied_positions[coh@right_pos] <- FALSE
+                              coh@right_pos <- new_right
+                              occupied_positions[new_right] <- TRUE
+                          } else {
+                              coh@right_blocked <- TRUE
+                          }
+                      }
+                      
+                      if ((coh@right_pos - coh@left_pos) >=2) {
+                          coh@extruded_beads[(coh@left_pos+1) : (coh@right_pos-1)] <- TRUE
+                      }
+                  }
+                  object@cohesins[[i]] <- coh
+              }
+              object@occupied_positions <- occupied_positions
+              object@extruded_beads <- foreach(coh = object@cohesins, .combine = cbind) %do% 
+                  coh@extruded_beads %>% rowSums()>0
+              object
+          }
+)
+
+
+setGeneric("effective_dist", function(object, pointA, pointB) {
+    standardGeneric("effective_dist")
+})
+
+setMethod("effective_dist",
+          "Sim",
+          function(object, pointA, pointB) {
+              
+              poi <- IRanges(pointA, pointB) # Points of interest for effective distance calculation
+              
+              extruded <- IRanges(object@extruded_beads)
+              not_extruded <- IRanges(!object@extruded_beads)
+              
+              not_extruded <- subsetByOverlaps(not_extruded, poi)
+              start(not_extruded) <- pmax(start(not_extruded), start(poi))
+              end(not_extruded) <- pmin(end(not_extruded), end(poi))
+              non_extruded_beads <- sum(width(not_extruded))
+              
+              # If the first point of interest in in an extruded region, find the shortest distance 'back'
+              r <- subsetByOverlaps(extruded, resize(poi, fix = "start", width=1))
+              first_segment_beads <- ifelse(length(r)==1, 1+min(start(poi) - start(r), end(r) - start(poi)), 0)
+              
+              # If the second point of interest in in an extruded region, find the shortest distance 'back'
+              r <- subsetByOverlaps(extruded, resize(poi, fix = "end", width=1))
+              last_segment_beads <- ifelse(length(r)==1, 1+min(end(poi) - start(r), end(r) - end(poi)), 0)
+              
+              dist <- first_segment_beads + non_extruded_beads + last_segment_beads - 1
+              return(dist)
+          })
+
+
+setGeneric("plot_fiber", function(object) {
+    standardGeneric("plot_fiber")
+})
+
+setMethod("plot_fiber",
+          "Sim",
+          function(object) {
+              pal <- brewer.pal(9, "Set1")
+              bead_col <- rep("black", object@polymer_length)
+              bead_pch <- rep(19, object@polymer_length)
+              for (i in 1:length(object@cohesins)) {
+                  col <- pal[i]
+                  coh <- object@cohesins[[i]]
+                  bead_col[coh@left_pos] <- col
+                  bead_col[coh@right_pos] <- col
+                  if(coh@left_blocked) bead_pch[coh@left_pos] <- 15
+                  if(coh@left_ctcf_captured) bead_pch[coh@left_pos] <- -9658 # Right facing triangle
+                  
+                  if(coh@right_blocked) bead_pch[coh@right_pos] <- 15
+                  if(coh@right_ctcf_captured) bead_pch[coh@right_pos] <- -9668  # Left facing triangle
+              }
+              plot(ifelse(object@extruded_beads, 2, 1), col=bead_col, pch=bead_pch, cex=2, ylim=c(0,5), 
+                   xlim=c(-2, length(object@extruded_beads)+2), yaxt="n", ylab="", xlab="Bead ID")
+              # Plot cohesin text labels
+              for (i in 1:length(object@cohesins)) {
+                  col <- pal[i]
+                  coh <- object@cohesins[[i]]
+                  text(mean(c(coh@left_pos, coh@right_pos)), 2.5+i*0.7, paste0("Cohesin ", i, "\n(", coh@alive, " of ", coh@processivity, ")"), 
+                       col=col, adj=0.5)
+              }
+              # Plot CTCF
+              if ((nrow(object@plus_ctcfs) +  nrow(object@minus_ctcfs)) > 0) {
+                  ctcf_plot_df <- rbind(object@plus_ctcfs, object@minus_ctcfs) 
+                  ctcf_plot_df$pch <- c(rep(">", nrow(object@plus_ctcfs)), rep("<", nrow(object@minus_ctcfs)))
+                  ctcf_plot_df <- ctcf_plot_df %>% group_by(pos) %>% mutate(y=0.25*1:n()) 
+                  with(ctcf_plot_df, text(pos, y, pch, cex=1.5))    
+              }
+          })
+
+avg_effective_dist <- function(object, type, pointA, pointB, num_iter=10000, num_reps=10, burn_in=NULL) {
+    if(is.null(burn_in)) burn_in <- object@processivity*5
+    if(type=="pairwise") {
+        ret <- foreach(rep=1:num_reps, .combine=rbind) %dopar% {
+            rep_object <- Sim(length(object@cohesins), 
+                              polymer_length_bp = object@polymer_length * object@bead_size, 
+                              processivity_bp = object@processivity * object@bead_size, 
+                              bead_size = object@bead_size,
+                              plus_ctcfs = object@plus_ctcfs,
+                              minus_ctcfs = object@minus_ctcfs
+            )
+            times(burn_in) %do% {rep_object <- advance(rep_object); return(NULL)}
+            foreach(i=1:num_iter, .combine=rbind) %do% {
+                rep_object <- advance(rep_object)
+                data.frame(effective_dist = effective_dist(rep_object, pointA, pointB))    
+            } %>% summarize(effective_dist = mean(effective_dist))
+        }
+    }
+    return(ret)
+}
