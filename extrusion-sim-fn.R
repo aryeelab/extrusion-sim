@@ -93,11 +93,11 @@ setMethod("show",
           }
 )
 
-setGeneric("set_ctcfs", function(object, orientation, pos_bp, occupancy_rate) {
-    standardGeneric("set_ctcfs")
+setGeneric("add_ctcf", function(object, orientation, pos_bp, occupancy_rate) {
+    standardGeneric("add_ctcf")
 })
 
-setMethod("set_ctcfs",
+setMethod("add_ctcf",
           "Sim",
           function(object, orientation, pos_bp, occupancy_rate=1) {
               if (orientation=="+") {
@@ -119,6 +119,21 @@ setMethod("set_ctcfs",
               object
           })
 
+setGeneric("delete_ctcf", function(object, orientation, pos_bp, occupancy_rate) {
+    standardGeneric("delete_ctcf")
+})
+
+setMethod("delete_ctcf",
+          "Sim",
+          function(object, pos_bp) {
+              idx <- object@plus_ctcfs$pos_bp %in% pos_bp
+              object@plus_ctcfs <- object@plus_ctcfs[!idx,]
+              idx <- object@minus_ctcfs$pos_bp %in% pos_bp
+              object@minus_ctcfs <- object@minus_ctcfs[!idx,]
+              object
+          })
+
+
 setGeneric("advance", function(object) {
     standardGeneric("advance")
 })
@@ -133,6 +148,12 @@ setMethod("advance", "Sim",
                       #cat ("Cohesin fell off!\n")
                       occupied_positions[coh@left_pos] <- FALSE
                       occupied_positions[coh@right_pos] <- FALSE
+                      # Release CTCF (if any)
+                      idx <- object@plus_ctcfs$pos == coh@left_pos
+                      object@plus_ctcfs$bound_cohesin[idx] <- FALSE
+                      idx <- object@minus_ctcfs$pos == coh@right_pos
+                      object@minus_ctcfs$bound_cohesin[idx] <- FALSE
+                      
                       # Generate a new one (making sure it doesn't overlap an existing one)
                       collision <- TRUE
                       while (collision) {
@@ -233,17 +254,21 @@ setMethod("effective_dist",
               last_segment_beads <- ifelse(length(r)==1, 1+min(end(poi) - start(r), end(r) - end(poi)), 0)
               
               dist <- first_segment_beads + non_extruded_beads + last_segment_beads - 1
+              
+              # If the points are in the same extruded region the direct distance will be shortest
+              if (dist > (pointB-pointA)) dist <- pointB-pointA
+              
               return(dist)
           })
 
 
-setGeneric("plot_fiber", function(object) {
+setGeneric("plot_fiber", function(object, xmin=NULL, xmax=NULL, main=NULL) {
     standardGeneric("plot_fiber")
 })
 
 setMethod("plot_fiber",
           "Sim",
-          function(object) {
+          function(object, xmin=NULL, xmax=NULL, main=NULL) {
               pal <- brewer.pal(9, "Set1")
               bead_col <- rep("black", object@polymer_length)
               bead_pch <- rep(19, object@polymer_length)
@@ -258,8 +283,10 @@ setMethod("plot_fiber",
                   if(coh@right_blocked) bead_pch[coh@right_pos] <- 15
                   if(coh@right_ctcf_captured) bead_pch[coh@right_pos] <- -9668  # Left facing triangle
               }
+              if (is.null(xmin)) xmin <- -2
+              if (is.null(xmax)) xmax <- length(object@extruded_beads)+2
               plot(ifelse(object@extruded_beads, 2, 1), col=bead_col, pch=bead_pch, cex=2, ylim=c(0,5), 
-                   xlim=c(-2, length(object@extruded_beads)+2), yaxt="n", ylab="", xlab="Bead ID")
+                   xlim=c(xmin, xmax), yaxt="n", ylab="", xlab="Bead ID", main=main)
               # Plot cohesin text labels
               for (i in 1:length(object@cohesins)) {
                   col <- pal[i]
@@ -276,7 +303,7 @@ setMethod("plot_fiber",
               }
           })
 
-avg_effective_dist <- function(object, type, pointA, pointB, num_iter=10000, num_reps=10, burn_in=NULL) {
+effective_dist_sim <- function(object, type, pointA, pointB, num_iter=10000, num_reps=10, burn_in=NULL, mean_dist=FALSE) {
     if(is.null(burn_in)) burn_in <- object@processivity*5
     if(type=="pairwise") {
         ret <- foreach(rep=1:num_reps, .combine=rbind) %dopar% {
@@ -290,9 +317,10 @@ avg_effective_dist <- function(object, type, pointA, pointB, num_iter=10000, num
             times(burn_in) %do% {rep_object <- advance(rep_object); return(NULL)}
             foreach(i=1:num_iter, .combine=rbind) %do% {
                 rep_object <- advance(rep_object)
-                data.frame(effective_dist = effective_dist(rep_object, pointA, pointB))    
-            } %>% summarize(effective_dist = mean(effective_dist))
+                data.frame(rep=rep, iter=i, effective_dist = effective_dist(rep_object, pointA, pointB))    
+            }
         }
+        if (mean_dist) ret <- ret %>% group_by(rep) %>% summarize(effective_dist = mean(effective_dist))
     }
     return(ret)
 }
