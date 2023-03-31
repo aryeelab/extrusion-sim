@@ -1,0 +1,269 @@
+---
+title: "GIST FGF3 loop extrusion simulations"
+output: html_notebook
+---
+
+```{r}
+library(foreach)
+library(doParallel)
+registerDoParallel(cores=8)
+library(ggplot2)
+library(dplyr)
+library(IRanges)
+library(RColorBrewer)
+source("extrusion-sim-fn.R")
+```
+
+
+# Simulate the FGF3 locus
+
+We're temporarily using 69,000kb-71,920kb as the 0 - 1,920 range
+FGF3 TSS: 69,819,416kb (819.416kb)
+Main K27ac peak: 69,922,000-69,928,000 (925kb)
+
+name: MA0139.1
+location: chr11:69643502-69643520 (-)
+score: 13.082
+
+name: MA0139.1
+location: chr11:69670403-69670421 (-)
+score: 20.9508
+
+name: MA0139.1
+location: chr11:69686029-69686047 (+)
+score: 14.5738
+
+name: MA0139.1
+location: chr11:69704750-69704768 (+)
+score: 17.459
+
+name: MA0139.1
+location: chr11:69718314-69718332 (+)
+score: 12.4426
+
+-------------
+
+name: MA0139.1
+location: chr11:69801712-69801730 (-)
+score: 20.4918
+
+name: MA0139.1
+location: chr11:69842277-69842295 (-)
+score: 20.0328
+
+name: MA0139.1
+location: chr11:69888726-69888744 (-)
+score: 20.1475
+
+name: MA0139.1
+location: chr11:69910245-69910263 (+)
+score: 21.2787
+
+name: MA0139.1
+location: chr11:69915619-69915637 (+)
+score: 20.5082
+
+name: MA0139.1
+location: chr11:69919002-69919020 (+)
+score: 21.0164
+
+name: MA0139.1
+location: chr11:69950264-69950282 (+)
+score: 13.0
+
+
+```{r}
+ctcf_occ_rate <- 1
+sim <- Sim(8, polymer_length_bp = 240e3*8, processivity_bp = 150e3, bead_size = 1000, ctcf_capture_rate=0.75)
+sim <- sim %>% add_ctcf(orientation = "-", pos_bp=c(643502, 670403, 801712, 842277, 888726), occupancy_rate = ctcf_occ_rate) 
+sim <- sim %>% add_ctcf(orientation = "+", pos_bp=c(686029, 704750, 718314, 910245, 915619, 919002, 950264), occupancy_rate = ctcf_occ_rate) 
+
+pointA <- 819 # 819416
+pointB <- 925
+
+# Full distance
+pointB - pointA
+
+sim
+sim_nt <- sim
+
+
+```
+
+
+
+```{r}
+
+plot_fiber(sim_nt, 620, 950, main="NT")
+
+sim_b <- sim_nt %>% delete_ctcf(pos_bp = c(910245, 915619, 919002))
+plot_fiber(sim_b, 620, 950, main="B")
+
+sim_c <- sim_nt %>% delete_ctcf(pos_bp = c(888726, 910245, 915619, 919002))
+plot_fiber(sim_c, 620, 950, main="C")
+
+#sim_noctcf <- sim_nt %>% delete_ctcf(pos_bp = c(801712, 842277, 888726, 910245, 915619, 919002, 950264))
+#plot_fiber(sim_noctcf, 620, 950, main="C")
+
+
+```
+
+
+```{r}
+
+pointA <- 819 # 819416 FGF3P
+#pointA <- 887 # Left of boundary
+pointB <- 925
+
+num_iter <- 5000
+burn_in <- 5000
+num_reps <- 4
+
+system.time({
+    df <- rbind(
+        cbind(effective_dist_sim(sim, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="NT"),
+        cbind(effective_dist_sim(sim_b, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="B"),
+        cbind(effective_dist_sim(sim_c, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="C"))
+})
+
+df
+
+```
+
+```{r}
+df %>% ggplot(aes(effective_dist)) + geom_histogram() + facet_wrap(~cond) + theme_bw() + ylim(0, 2000)
+```
+
+```{r}
+df %>% ggplot(aes(cond, effective_dist)) + geom_boxplot() + theme_bw()
+
+```
+
+
+
+
+The code below explores the required burn-in time and stability.
+
+# Simulate
+
+```{r}
+system.time(
+sim_df <- foreach(i = 1:100000, .combine=rbind) %do% {
+        sim <- advance(sim)
+        data.frame(i=i, effective_dist = effective_dist(sim, pointA, pointB), 
+                   num_extruded_beads=sum(sim@extruded_beads),
+                    bound_plus_cohesins=sum(sim@plus_ctcfs$bound_cohesin),
+                    bound_minus_cohesins=sum(sim@minus_ctcfs$bound_cohesin))
+})
+
+sim_df %>% mutate(effective_dist_sim = cumsum(effective_dist)/i) %>% ggplot(aes(i, effective_dist_sim)) + geom_line() + theme_bw() + geom_hline(yintercept = pointB-pointA)
+```
+
+```{r}
+sim_df %>% mutate(i_bin=round(i/5000)) %>% group_by(i_bin) %>% summarize(i = 5000*mean(i_bin), effective_dist = mean(effective_dist)) %>% ggplot(aes(i, effective_dist)) + geom_line() + theme_bw() + geom_hline(yintercept = pointB-pointA)
+
+```
+
+
+```{r}
+sim_df %>% ggplot(aes(i, effective_dist)) + geom_line() + theme_bw()
+```
+
+```{r}
+sim_df %>% ggplot(aes(effective_dist)) + geom_histogram() + theme_bw()
+
+```
+
+
+```{r}
+sim_df %>% ggplot(aes(i, bound_minus_cohesins)) + geom_line() + theme_bw()
+head(sim_df)
+
+```
+
+# Check simulation stability - No CTCFs
+```{r}
+sim <- Sim(8, polymer_length_bp = 240e3*8, processivity = 150e3, bead_size = 1000)
+
+pointA <- 700
+pointB <- 1200
+
+sim_df <- foreach(run = 1:8, .combine=rbind) %dopar% {
+    foreach(i = 1:50000, .combine=rbind) %do% {
+        sim <- advance(sim)
+        data.frame(run=run, i=i, effective_dist = effective_dist(sim, pointA, pointB))
+    }
+}
+sim_df <- sim_df %>% group_by(run) %>% mutate(effective_dist_sim = cumsum(effective_dist)/i)
+sim_df %>% ggplot(aes(i, effective_dist_sim, group=run)) + geom_line() + theme_bw()
+#sim_df %>% filter(i>5000) %>% ggplot(aes(i, effective_dist_sim, group=run)) + geom_line() + theme_bw()
+#saveRDS(sim_df, file="../data/sim_df.rds")
+sim_df <- readRDS("../data/sim_df.rds")
+
+```
+
+
+```{r}
+
+sim_df %>% filter(i>=150) %>% mutate(i=i-150) %>% group_by(run) %>% mutate(effective_dist_sim = cumsum(effective_dist)/i) %>% ggplot(aes(i, effective_dist_sim, group=run)) + geom_line() + theme_bw()
+
+```
+
+
+# Check simulation stability - With CTCFs
+```{r}
+sim <- sim_with_4_left_and_4_right_ctcf
+
+pointA <- 700
+pointB <- 1200
+
+sim_df <- foreach(run = 1:4, .combine=rbind) %dopar% {
+    foreach(i = 1:50000, .combine=rbind) %do% {
+        sim <- advance(sim)
+        data.frame(run=run, i=i, effective_dist = effective_dist(sim, pointA, pointB), 
+                   num_extruded_beads=sum(sim@extruded_beads),
+                    bound_plus_cohesins=sum(sim@plus_ctcfs$bound_cohesin),
+                    bound_minus_cohesins=sum(sim@minus_ctcfs$bound_cohesin))
+    }
+}
+saveRDS(sim_df, file="../data/sim_df_with_ctcf.rds")
+sim_df <- readRDS("../data/sim_df_with_ctcf.rds")
+
+```
+
+# Effective length
+```{r}
+sim_df %>% filter(i>=150) %>% mutate(i=i-150) %>% group_by(run) %>% mutate(effective_dist_sim = cumsum(effective_dist)/i) %>% ggplot(aes(i, effective_dist_sim, group=run)) + geom_line() + theme_bw()
+
+```
+```{r}
+sim_df %>% mutate(i_bin=5000*ceiling(i/5000)) %>% group_by(run, i_bin) %>% summarize(effective_dist_sim = mean(effective_dist))  %>% ggplot(aes(i_bin, effective_dist_sim, group=run)) + geom_line() + theme_bw() 
+
+```
+
+
+Why does it trend up?
+
+# Num extruded beads
+```{r}
+sim_df %>% filter(i>=150) %>% mutate(i=i-150) %>% group_by(run) %>% mutate(avg_extruded_beads = cumsum(num_extruded_beads)/i) %>% ggplot(aes(i, avg_extruded_beads, group=run)) + geom_line() + theme_bw()
+
+```
+
+
+
+
+```{r}
+sim_df %>% mutate(i_bin=5000*ceiling(i/5000)) %>% group_by(run, i_bin) %>% summarize(avg_extruded_beads = mean(num_extruded_beads))  %>% ggplot(aes(i_bin, avg_extruded_beads, group=run)) + geom_line() + theme_bw() 
+
+```
+
+
+
+# Num cohesin-bound CTCFs
+```{r}
+sim_df %>% mutate(i_bin=5000*ceiling(i/5000)) %>% group_by(run, i_bin) %>% summarize(bound_plus_cohesins = mean(bound_plus_cohesins),
+                                                                                     bound_minus_cohesins = bound_minus_cohesins)  %>% 
+    ggplot(aes(i_bin, bound_plus_cohesins, group=run)) + geom_line() + theme_bw() 
+
+```
