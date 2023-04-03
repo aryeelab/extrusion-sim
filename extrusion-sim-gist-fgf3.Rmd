@@ -6,11 +6,12 @@ output: html_notebook
 ```{r}
 library(foreach)
 library(doParallel)
-registerDoParallel(cores=8)
+registerDoParallel(cores=48)
 library(ggplot2)
 library(dplyr)
 library(IRanges)
 library(RColorBrewer)
+library(stringr)
 source("extrusion-sim-fn.R")
 ```
 
@@ -74,7 +75,7 @@ score: 13.0
 
 ```{r}
 ctcf_occ_rate <- 1
-sim <- Sim(8, polymer_length_bp = 240e3*8, processivity_bp = 150e3, bead_size = 1000, ctcf_capture_rate=0.75)
+sim <- Sim(8, polymer_length_bp = 240e3*8, processivity_bp = 150e3, bead_size = 1000, ctcf_capture_rate=0.25)
 sim <- sim %>% add_ctcf(orientation = "-", pos_bp=c(643502, 670403, 801712, 842277, 888726), occupancy_rate = ctcf_occ_rate) 
 sim <- sim %>% add_ctcf(orientation = "+", pos_bp=c(686029, 704750, 718314, 910245, 915619, 919002, 950264), occupancy_rate = ctcf_occ_rate) 
 
@@ -84,16 +85,7 @@ pointB <- 925
 # Full distance
 pointB - pointA
 
-sim
 sim_nt <- sim
-
-
-```
-
-
-
-```{r}
-
 plot_fiber(sim_nt, 620, 950, main="NT")
 
 sim_b <- sim_nt %>% delete_ctcf(pos_bp = c(910245, 915619, 919002))
@@ -111,31 +103,147 @@ plot_fiber(sim_c, 620, 950, main="C")
 
 ```{r}
 
+rds <- "rds/fgf3-nt-b-c-coh8-occrate1-capturerate0.25-50kiter-100reps.rds"
+
 pointA <- 819 # 819416 FGF3P
 #pointA <- 887 # Left of boundary
 pointB <- 925
 
-num_iter <- 5000
-burn_in <- 5000
-num_reps <- 4
-
-system.time({
+if (file.exists(rds)){
+  df <- readRDS(rds)
+} else {
+  num_iter <- 50000
+  burn_in <- 10000
+  num_reps <- 100
+  
+  system.time({
     df <- rbind(
-        cbind(effective_dist_sim(sim, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="NT"),
-        cbind(effective_dist_sim(sim_b, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="B"),
-        cbind(effective_dist_sim(sim_c, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="C"))
-})
+      cbind(effective_dist_sim(sim, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="NT"),
+      cbind(effective_dist_sim(sim_b, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="B"),
+      cbind(effective_dist_sim(sim_c, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="C"))
+  })
+  
+  df$cond <- factor(df$cond, levels=c("NT", "B", "C"))
+  saveRDS(df, file=rds)  
+}
 
-df
+############################
 
+
+ctcf_occ_rate <- 1
+sim <- Sim(12, polymer_length_bp = 240e3*8, processivity_bp = 150e3, bead_size = 1000, ctcf_capture_rate=0.25)
+sim <- sim %>% add_ctcf(orientation = "-", pos_bp=c(643502, 670403, 801712, 842277, 888726), occupancy_rate = ctcf_occ_rate) 
+sim <- sim %>% add_ctcf(orientation = "+", pos_bp=c(686029, 704750, 718314, 910245, 915619, 919002, 950264), occupancy_rate = ctcf_occ_rate) 
+pointA <- 819 # 819416
+pointB <- 925
+# Full distance
+pointB - pointA
+sim_nt <- sim
+sim_b <- sim_nt %>% delete_ctcf(pos_bp = c(910245, 915619, 919002))
+sim_c <- sim_nt %>% delete_ctcf(pos_bp = c(888726, 910245, 915619, 919002))
+rds <- "rds/fgf3-nt-b-c-coh12-occrate1-capturerate0.25-50kiter-100reps.rds"
+pointA <- 819 # 819416 FGF3P
+#pointA <- 887 # Left of boundary
+pointB <- 925
+if (file.exists(rds)){
+  df <- readRDS(rds)
+} else {
+  num_iter <- 50000
+  burn_in <- 10000
+  num_reps <- 100
+  
+  system.time({
+    df <- rbind(
+      cbind(effective_dist_sim(sim, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="NT"),
+      cbind(effective_dist_sim(sim_b, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="B"),
+      cbind(effective_dist_sim(sim_c, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="C"))
+  })
+  
+  df$cond <- factor(df$cond, levels=c("NT", "B", "C"))
+  saveRDS(df, file=rds)  
+}
+
+###
+
+ctcf_occ_rate <- 1
+sim <- Sim(16, polymer_length_bp = 240e3*8, processivity_bp = 150e3, bead_size = 1000, ctcf_capture_rate=0.25)
+sim <- sim %>% add_ctcf(orientation = "-", pos_bp=c(643502, 670403, 801712, 842277, 888726), occupancy_rate = ctcf_occ_rate) 
+sim <- sim %>% add_ctcf(orientation = "+", pos_bp=c(686029, 704750, 718314, 910245, 915619, 919002, 950264), occupancy_rate = ctcf_occ_rate) 
+pointA <- 819 # 819416
+pointB <- 925
+# Full distance
+pointB - pointA
+sim_nt <- sim
+sim_b <- sim_nt %>% delete_ctcf(pos_bp = c(910245, 915619, 919002))
+sim_c <- sim_nt %>% delete_ctcf(pos_bp = c(888726, 910245, 915619, 919002))
+rds <- "rds/fgf3-nt-b-c-coh16-occrate1-capturerate0.25-50kiter-100reps.rds"
+pointA <- 819 # 819416 FGF3P
+#pointA <- 887 # Left of boundary
+pointB <- 925
+if (file.exists(rds)){
+  df <- readRDS(rds)
+} else {
+  num_iter <- 50000
+  burn_in <- 10000
+  num_reps <- 100
+  
+  system.time({
+    df <- rbind(
+      cbind(effective_dist_sim(sim, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="NT"),
+      cbind(effective_dist_sim(sim_b, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="B"),
+      cbind(effective_dist_sim(sim_c, type="pairwise", pointA=pointA, pointB=pointB, num_iter=num_iter, num_reps=num_reps, burn_in=burn_in), cond="C"))
+  })
+  
+  df$cond <- factor(df$cond, levels=c("NT", "B", "C"))
+  saveRDS(df, file=rds)  
+}
 ```
 
 ```{r}
-df %>% ggplot(aes(effective_dist)) + geom_histogram() + facet_wrap(~cond) + theme_bw() + ylim(0, 2000)
+df <- foreach (rds = dir("rds", pattern="*100reps.rds", full.names = TRUE), .combine=rbind) %do% {
+  readRDS(rds) %>% cbind(sim=rds) 
+}
+df %>% filter(effective_dist<=30) %>% 
+  group_by(sim, cond, effective_dist) %>% summarize(n=n()) %>% group_by(sim, cond) %>% mutate(cumsum = cumsum(n)) %>% ggplot(aes(effective_dist, cumsum, color=cond)) + geom_line() + xlim(0,30) + ylim(0, 60000) + theme_bw() + ggtitle(rds) +
+  facet_wrap(~sim)
+
+
+df2 <- df %>% filter(effective_dist<=30)
+df2 %>% filter(effective_dist<=20) %>% 
+        mutate(num_cohesins = factor(str_split_fixed(sim, "-", 9)[,5], levels=c("coh8", "coh12", "coh16")),
+               capture_rate = str_split_fixed(sim, "-", 9)[,7]) %>%
+  group_by(num_cohesins, capture_rate, cond, effective_dist) %>% summarize(n=n()) %>% group_by(num_cohesins, capture_rate, cond) %>% mutate(cumsum = cumsum(n)) %>% ggplot(aes(effective_dist, cumsum, color=cond)) + geom_line() + xlim(0,15) + ylim(0, 30000) + theme_bw() +
+  facet_grid(num_cohesins~capture_rate)
+
+
+
+
+```
+
+
+
+```{r}
+df2 <- df %>% filter(effective_dist<=30)
+df2 %>% filter(effective_dist<=20) %>% 
+        mutate(num_cohesins = factor(str_split_fixed(sim, "-", 9)[,5], levels=c("coh8", "coh12", "coh16")),
+               capture_rate = str_split_fixed(sim, "-", 9)[,7]) %>%
+  group_by(num_cohesins, capture_rate, cond, effective_dist) %>% summarize(n=n()) %>% group_by(num_cohesins, capture_rate, cond)  %>% ggplot(aes(effective_dist, n, color=cond)) + geom_line() + xlim(0,5) + ylim(0, 3500) + theme_bw() +
+  facet_grid(num_cohesins~capture_rate)
+
+```
+
+
+```{r}
+df2
+```
+
+
+```{r}
+df %>% ggplot(aes(effective_dist)) + geom_histogram(binwidth = 1) + facet_wrap(~cond, ncol=1) + theme_bw() + xlim(0, 105)
 ```
 
 ```{r}
-df %>% ggplot(aes(cond, effective_dist)) + geom_boxplot() + theme_bw()
+df %>% group_by(cond, effective_dist) %>% summarize(n=n()) %>% group_by(cond) %>% mutate(cumsum = cumsum(n)) %>% ggplot(aes(effective_dist, cumsum, color=cond)) + geom_line() + xlim(0,30) + ylim(0, 60000) + theme_bw() 
 
 ```
 
