@@ -1,0 +1,186 @@
+---
+title: "Relationships between cohesin processivity and P(s) curves"
+output: html_notebook
+---
+
+
+```{r}
+library(ggplot2)
+library(scales)
+library(dplyr)
+library(foreach)
+```
+
+```{r}
+frag_length <- 1000e3
+step <- 10000
+dist <- seq(step, frag_length, step)
+
+contact_freq <- function(dist, D=-2) {
+    y <- dist ^ D
+    y <- y / sum(y)
+    y
+}
+
+plot(log(dist), log(contact_freq(dist)))
+
+```
+
+```{r}
+
+loop_length <- 200e3
+loop_mid <- loop_length/2
+
+# Effective distance
+extruded_dist_eff <- c(seq(step, loop_mid, step), seq(loop_mid, step, -step))
+unextruded_dist_eff <- seq(step, by=step, length.out=length(dist)-length(extruded_dist_eff))
+dist_eff <- c(extruded_dist_eff, unextruded_dist_eff)
+
+plot(dist, dist_eff)
+
+```
+
+```{r}
+
+y <- contact_freq(dist_eff)
+
+data.frame(dist, y) %>% ggplot(aes(dist, y)) + geom_line() + scale_x_continuous(labels=comma) + theme_bw() + ggtitle("Original Scale")
+
+data.frame(dist, y) %>% ggplot(aes(dist, y)) + geom_line() + scale_x_log10(labels=comma) + scale_y_log10() + theme_bw() + ggtitle("Log-Log scale")
+
+```
+
+
+# Simulate a set of extruding molecules
+```{r}
+frag_length <- 1000e3
+step <- 5000
+dist <- seq(step, frag_length, step)
+
+effective_distance <- function(loop_length) {
+    loop_mid <- loop_length/2    
+    extruded_dist_eff <- c(seq(step, loop_mid, step), seq(loop_mid, step, -step))
+    unextruded_dist_eff <- seq(step, by=step, length.out=length(dist)-length(extruded_dist_eff))
+    c(extruded_dist_eff, unextruded_dist_eff)
+}
+
+plot(dist, effective_distance(loop_length = 100e3), main="Loop length = 100kb", ylab="Effective distance", xlab="Linear Distance")
+plot(dist, effective_distance(loop_length = 200e3), main="Loop length = 200kb", ylab="Effective distance", xlab="Linear Distance")
+plot(dist, effective_distance(loop_length = 400e3), main="Loop length = 400kb", ylab="Effective distance", xlab="Linear Distance")
+```
+
+
+```{r}
+# All cohesins extrude to 150kb
+# One molecule per iteration, with changing extruded loop length
+df <- foreach(l = seq(step*2, 150e3, step), .combine=rbind) %do% {
+    data.frame(dist=dist, effective_dist = effective_distance(loop_length = l), loop_length=l, type="extruded")
+}
+df$contact_freq <- contact_freq(df$effective_dist)
+df_extruded <- df %>% group_by(dist, type) %>% summarize(effective_dist=mean(effective_dist), contact_freq=mean(contact_freq)) 
+df_extruded$contact_freq <- df_extruded$contact_freq / sum(df_extruded$contact_freq)
+# Add survival curve
+df_extruded$S <- 1 - cumsum(df_extruded$contact_freq)
+
+# Make the unextruded P(s) curve and survival curves
+df_unextruded <- data.frame(dist=dist, effective_dist=dist, contact_freq=contact_freq(dist), type="unextruded")
+df_unextruded$S <- 1 - cumsum(df_unextruded$contact_freq)
+
+df <- rbind(df_extruded, df_unextruded)
+
+df %>% ggplot(aes(dist, contact_freq, group=type, color=type)) + geom_line() + theme_bw() + scale_x_log10(labels=comma) + scale_y_log10() + geom_vline(xintercept = 150e3, color='darkgreen')
+
+```
+
+
+# Survival curves
+```{r}
+
+df %>% ggplot(aes(dist, S, group=type, color=type)) + geom_line() + theme_bw()  + geom_vline(xintercept = 150e3, color='darkgreen') + ggtitle("Original scale")
+
+df %>% ggplot(aes(dist, S, group=type, color=type)) + geom_line() + theme_bw() + scale_x_log10(labels=comma) + scale_y_log10(limits=c(1e-5,NA)) + geom_vline(xintercept = 150e3, color='darkgreen') + ggtitle("Log-Log scale")
+
+
+
+```
+
+# Cohesins extrude to a mean distance of 150kb, sd=30e3
+# One molecule per iteration, with changing extruded loop length
+```{r}
+
+hist(pmax(20e3, rnorm(1000, mean=150e3, sd=30e3)))
+
+
+df <- foreach(l = pmax(20e3, rnorm(1000, mean=150e3, sd=30e3)), .combine=rbind) %do% {
+    data.frame(dist=dist, effective_dist = effective_distance(loop_length = l), loop_length=l, type="extruded")
+}
+df$contact_freq <- contact_freq(df$effective_dist)
+df_extruded <- df %>% group_by(dist, type) %>% summarize(effective_dist=mean(effective_dist), contact_freq=mean(contact_freq)) 
+df_extruded$contact_freq <- df_extruded$contact_freq / sum(df_extruded$contact_freq)
+# Add survival curve
+df_extruded$S <- 1 - cumsum(df_extruded$contact_freq)
+
+# Make the unextruded P(s) curve. slope and survival curves
+df_unextruded <- data.frame(dist=dist, effective_dist=dist, contact_freq=contact_freq(dist), type="unextruded")
+df_unextruded$S <- 1 - cumsum(df_unextruded$contact_freq)
+
+df <- rbind(df_extruded, df_unextruded)
+
+df %>% ggplot(aes(dist, contact_freq, group=type, color=type)) + geom_line() + theme_bw() + scale_x_log10(labels=comma) + scale_y_log10() + geom_vline(xintercept = 150e3, color='darkgreen')
+
+```
+# Cohesins extrude to a mean distance of 150kb, sd=75e3
+# One molecule per iteration, with changing extruded loop length
+```{r}
+
+hist(pmax(20e3, rnorm(1000, mean=150e3, sd=75e3)))
+
+
+df <- foreach(l = pmax(20e3, rnorm(1000, mean=150e3, sd=75e3)), .combine=rbind) %do% {
+    data.frame(dist=dist, effective_dist = effective_distance(loop_length = l), loop_length=l, type="extruded")
+}
+df$contact_freq <- contact_freq(df$effective_dist)
+df_extruded <- df %>% group_by(dist, type) %>% summarize(effective_dist=mean(effective_dist), contact_freq=mean(contact_freq)) 
+df_extruded$contact_freq <- df_extruded$contact_freq / sum(df_extruded$contact_freq)
+# Add survival curve
+df_extruded$S <- 1 - cumsum(df_extruded$contact_freq)
+
+# Make the unextruded P(s) curve. slope and survival curves
+df_unextruded <- data.frame(dist=dist, effective_dist=dist, contact_freq=contact_freq(dist), type="unextruded")
+df_unextruded$S <- 1 - cumsum(df_unextruded$contact_freq)
+
+df <- rbind(df_extruded, df_unextruded)
+
+df %>% ggplot(aes(dist, contact_freq, group=type, color=type)) + geom_line() + theme_bw() + scale_x_log10(labels=comma) + scale_y_log10() + geom_vline(xintercept = 150e3, color='darkgreen')
+
+```
+
+# Survival curves
+```{r}
+
+df %>% ggplot(aes(dist, S, group=type, color=type)) + geom_line() + theme_bw()  + geom_vline(xintercept = 150e3, color='darkgreen') + ggtitle("Original scale")
+
+df %>% ggplot(aes(dist, S, group=type, color=type)) + geom_line() + theme_bw() + scale_x_log10(labels=comma) + scale_y_log10(limits=c(1e-5,NA)) + geom_vline(xintercept = 150e3, color='darkgreen') + ggtitle("Log-Log scale")
+```
+
+
+
+# Slope of extruded P(s) curve
+
+```{r}
+df <- rbind(df_extruded, df_unextruded)
+
+# Smooth the P(s) curves on the log scale
+fit <- loess(log10(df_extruded$contact_freq) ~ log10(df_extruded$dist), span = 0.1)
+df_extruded$contact_freq_smooth <- 10^predict(fit)
+
+df_extruded %>% ggplot(aes(dist, contact_freq_smooth, group=type, color=type)) + geom_line() + theme_bw() + scale_x_log10(labels=comma) + scale_y_log10() + geom_vline(xintercept = 150e3, color='darkgreen')
+
+# Add slope of contact freq
+df_extruded$contact_freq_slope <- c(NA, diff(log10(df_extruded$contact_freq_smooth)))
+
+
+df_extruded %>% ggplot(aes(dist, contact_freq_slope, group=type, color=type)) + geom_line() + theme_bw()  + geom_vline(xintercept = 150e3, color='darkgreen') + geom_hline(yintercept = 0)
+
+```
+
