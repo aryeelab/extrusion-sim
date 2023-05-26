@@ -6,10 +6,6 @@ import Pkg
 #Pkg.add("Graphs")
 using Graphs
 
-#Pkg.add("GraphRecipes")
-#Pkg.add("Plots")
-using Plots, GraphRecipes
-
 mutable struct Cohesin
     processivity::Int64
     alive::Int64
@@ -230,17 +226,7 @@ function plot_fiber(object::Sim, xmin=nothing, xmax=nothing, main=nothing)
 end
 
 object = Sim(10)
-for i in 1:20000
+for i in 1:200000
     advance(object)
 end
 object
-
-object
-
-graphplot(object.bead_graph)
-
-x = [1,2,3,4,5]
-
-x[5]
-
-
