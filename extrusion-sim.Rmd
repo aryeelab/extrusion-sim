@@ -22,9 +22,9 @@ source("extrusion-sim-fn.R")
 ```{r}
 set.seed(140)
 sim <- Sim(2, polymer_length_bp = 20e3, processivity_bp = 10e3, bead_size = 1000, ctcf_capture_rate=0.9, ctcf_stabilization_factor = 2)
-sim <- set_ctcfs(sim, orientation = "+", pos_bp=1500, occupancy_rate = 1)
-sim <- set_ctcfs(sim, orientation = "+", pos_bp=1505, occupancy_rate = 1)
-sim <- set_ctcfs(sim, orientation = "-", pos_bp=12500, occupancy_rate = 1)
+sim <- add_ctcf(sim, orientation = "+", pos_bp=1500, occupancy_rate = 1)
+sim <- add_ctcf(sim, orientation = "+", pos_bp=1505, occupancy_rate = 1)
+sim <- add_ctcf(sim, orientation = "-", pos_bp=12500, occupancy_rate = 1)
 sim
 ```
 
