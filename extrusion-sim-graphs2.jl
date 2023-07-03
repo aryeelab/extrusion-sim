@@ -6,6 +6,14 @@ import Pkg
 #Pkg.add("Graphs")
 using Graphs
 
+#Pkg.add("Plots")
+using Plots
+
+#Pkg.add("ColorSchemes")
+using ColorSchemes
+
+using Statistics
+
 mutable struct Cohesin
     processivity::Int64
     alive::Int64
@@ -125,7 +133,9 @@ function advance(object::Sim)
         coh.alive += 1
         if coh.alive >= coh.processivity
             # println("Cohesin fell off!")
-            rem_edge!(object.bead_graph, coh.left_pos, coh.right_pos)
+            if coh.left_pos+1 != coh.right_pos
+                rem_edge!(object.bead_graph, coh.left_pos, coh.right_pos)
+            end
             occupied_positions[coh.left_pos] = false
             occupied_positions[coh.right_pos] = false
             # Release CTCF (if any)
@@ -146,7 +156,7 @@ function advance(object::Sim)
                 end
             end
             occupied_positions[coh.left_pos] = true
-            add_edge!(object.bead_graph, coh.left_pos, coh.left_pos) 
+            add_edge!(object.bead_graph, coh.left_pos, copy(coh.left_pos)) 
         else
             # LEFT
             new_left = coh.left_pos - 1
@@ -166,7 +176,9 @@ function advance(object::Sim)
                         if coh.left_pos != coh.right_pos
                             occupied_positions[coh.left_pos] = false
                         end
-                        rem_edge!(object.bead_graph, coh.left_pos, coh.right_pos)
+                        if coh.left_pos+1 != coh.right_pos
+                            rem_edge!(object.bead_graph, coh.left_pos, coh.right_pos)
+                        end
                         add_edge!(object.bead_graph, new_left, coh.right_pos)
                         coh.left_pos = new_left
                         occupied_positions[new_left] = true
@@ -193,7 +205,9 @@ function advance(object::Sim)
                         if coh.left_pos != coh.right_pos
                             occupied_positions[coh.right_pos] = false
                         end
-                        rem_edge!(object.bead_graph, coh.left_pos, coh.right_pos)
+                        if coh.left_pos+1 != coh.right_pos
+                            rem_edge!(object.bead_graph, coh.left_pos, coh.right_pos)
+                        end
                         add_edge!(object.bead_graph, coh.left_pos, new_right)
                         coh.right_pos = new_right
                         occupied_positions[new_right] = true
@@ -217,16 +231,86 @@ function advance(object::Sim)
     object
 end
 
-function effective_dist(object::Sim, pointA::Int64, pointB::Int64)
-    length(a_star(object.bead_graph, pointA, pointB))
+function effective_dist(object::Sim)
+    mat = transpose(dijkstra_shortest_paths(object.bead_graph, 1).dists)
+    for i in 2:object.polymer_length
+        mat = vcat(mat, transpose(dijkstra_shortest_paths(object.bead_graph, i).dists))
+    end
+    mat
 end
 
 function plot_fiber(object::Sim, xmin=nothing, xmax=nothing, main=nothing)
+    x_list = [i for i in 1:object.polymer_length]
+    y_list = map(x -> (x ? 2 : 1), object.extruded_beads)
+    palette = ColorSchemes.Set1_9
+    color_list = [ColorSchemes.grays[1] for i in 1:object.polymer_length]
+    shape_list = [:circle for i in 1:object.polymer_length]
+    for i in 1:length(object.cohesins) 
+        col = palette[i]
+        coh = object.cohesins[i]
+        color_list[coh.left_pos] = col
+        color_list[coh.right_pos] = col
+        if coh.left_blocked
+            shape_list[coh.left_pos] = :square
+        end
+        if coh.left_ctcf_captured
+            shape_list[coh.left_pos] = :rtriangle
+        end
+        if coh.right_blocked
+            shape_list[coh.right_pos] = :square
+        end
+        if coh.right_ctcf_captured
+            shape_list[coh.right_pos] = :ltriangle
+        end
+    end
+    if isnothing(xmin)
+        xmin = (-2)
+    end
+    if isnothing(xmax)
+        xmax = length(object.extruded_beads)+2
+    end
+    p = scatter(x_list, y_list, color=color_list, markershape=shape_list, label="", markersize=10, markerstrokewidth=0, 
+        xlimits=(xmin,xmax), ylimits=(0,5))
     
+    for i in 1:length(object.cohesins)
+        col = palette[i]
+        coh = object.cohesins[i]
+        annotate!(mean([coh.left_pos, coh.right_pos]), 2.5+i*0.7, 
+            text(string("Cohesin ", i, "\n(", coh.alive, " of ", coh.processivity, ")"), col, :center, 9))
+    end
+    if ((nrow(object.plus_ctcfs) + nrow(object.minus_ctcfs)) > 0 )
+        ctcf_plot_df = [object.plus_ctcfs; object.minus_ctcfs]
+        ctcf_plot_df.pch = [[">" for i in 1:nrow(object.plus_ctcfs)]; ["<" for i in 1:nrow(object.minus_ctcfs)]]
+        ctcf_plot_df = groupby(ctcf_plot_df, :pos)
+        ctcf_plot_df = combine(ctcf_plot_df, :pos, eachindex => :y, :pch)
+        for i in 1:nrow(ctcf_plot_df)
+            annotate!(ctcf_plot_df.pos[i], 0.25*ctcf_plot_df.y[i], text(ctcf_plot_df.pch[i], :center, 12))
+        end
+    end
+    p
 end
 
-object = Sim(10)
-for i in 1:200000
-    advance(object)
-end
+default(size = (900, 300))
+
+object = Sim(2, 20e3, 10e3, 1000, 0.9, 2)
+
+object = add_ctcf(object, "+", 1500, 1)
+object = add_ctcf(object, "+", 1505, 1)
+object = add_ctcf(object, "-", 12500, 1)
 object
+
+dists = effective_dist(object)
+for i in 1:20000
+    # plot the first 10 steps in the simulation
+    if i<=10
+        display(plot_fiber(object))
+    end
+    advance(object)
+    dists = (dists + effective_dist(object))/2
+end
+plot_fiber(object)
+
+# Average effective distances between points over the duration of the simulation
+dists
+
+
