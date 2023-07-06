@@ -292,25 +292,38 @@ end
 
 default(size = (900, 300))
 
-object = Sim(2, 20e3, 10e3, 1000, 0.9, 2)
+Random.seed!(1234)
+object = Sim(2, 50e3, 10e3, 1000, 0.9, 4)
 
-object = add_ctcf(object, "+", 1500, 1)
-object = add_ctcf(object, "+", 1505, 1)
-object = add_ctcf(object, "-", 12500, 1)
+object = add_ctcf(object, "+", 15000, 1)
+object = add_ctcf(object, "+", 15005, 1)
+object = add_ctcf(object, "+", 15010, 1)
+object = add_ctcf(object, "-", 30000, 1)
+object = add_ctcf(object, "-", 30005, 1)
+object = add_ctcf(object, "-", 30010, 1)
+
 object
 
 dists = effective_dist(object)
 for i in 1:20000
-    # plot the first 10 steps in the simulation
-    if i<=10
+    # plot the first 20 steps in the simulation
+    if i<=20
         display(plot_fiber(object))
     end
     advance(object)
-    dists = (dists + effective_dist(object))/2
+    dists = (dists + effective_dist(object))
 end
-plot_fiber(object)
+dists = dists/20000
 
 # Average effective distances between points over the duration of the simulation
 dists
+
+contacts = (dists.+10).^(-1)
+
+plot(heatmap(dists[10:40,10:40]))
+
+plot(dists[15,:])
+
+plot(heatmap(log.(contacts[10:40,10:40])))
 
 
