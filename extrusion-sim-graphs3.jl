@@ -290,6 +290,43 @@ function plot_fiber(object::Sim, xmin=nothing, xmax=nothing, main=nothing)
     p
 end
 
+# 2 options: 
+# 1) average distance/contacts between all pairs of beads
+# 2) distance/contacts between pre-defined pairs of beads at each step
+
+function run_simulation(object::Sim, lead_in=0, steps=10000, a_list=[], b_list=[], 
+    average=true)
+    for i in 1:lead_in
+        advance(object)
+    end
+    
+    x = effective_dist(object)
+    sum_dists = x[a_list,b_list]
+    sum_contacts = (x[a_list,b_list].+1).^(-1)
+    dists_a_to_b = [x[a_list,b_list]]
+    contacts_a_to_b = [(x[a_list,b_list].+1).^(-1)]
+    
+    for i in 1:steps
+        advance(object)
+        x = effective_dist(object)
+        sum_dists = sum_dists + x[a_list,b_list]
+        sum_contacts = sum_contacts + ((x[a_list,b_list].+1).^(-1))
+        if average==false
+            dists_a_to_b = push!(dists_a_to_b, x[a_list,b_list])
+            contacts_a_to_b = push!(contacts_a_to_b, (x[a_list,b_list].+1).^(-1))
+        end
+    end  
+    avg_dists = sum_dists/(steps+1)
+    avg_contacts = sum_contacts/(steps+1)
+
+if average==true
+            [avg_dists, avg_contacts]
+end
+        
+[dists_a_to_b, contacts_a_to_b]
+        
+end
+
 default(size = (900, 300))
 
 Random.seed!(1234)
@@ -302,68 +339,54 @@ MYC_object = add_ctcf(MYC_object, "+", 15254, 1)
 MYC_object = add_ctcf(MYC_object, "+", 16853, 1)
 MYC_object = add_ctcf(MYC_object, "-", 22150, 1)
 
-# Keep track of average effective distance between each pair of beads
-dists = effective_dist(MYC_object)
-
-# Keep track of average contacts between each pair of beads
-contacts = (effective_dist(MYC_object).+10).^(-1)
-
-# Keep track of effective distance between beads 15 and 64 at each step
-a=15
-b=64
-dists_a_to_b = [effective_dist(MYC_object)[a,b]]
-
-# We will advance the simulation 20,000 steps
-for i in 1:20000
-    # plot the first 20 steps in the simulation
-    if i<=20
-        display(plot_fiber(MYC_object))
-    end
-    advance(MYC_object)
-    dists = dists + effective_dist(MYC_object)
-    contacts = contacts + ((effective_dist(MYC_object).+10).^(-1))
-    dists_a_to_b = push!(dists_a_to_b, effective_dist(MYC_object)[a,b])
-end
-dists = dists/20001
-contacts = contacts/20001
+results = run_simulation(MYC_object, 1000, 20000, 1:70, 1:70, false)
 
 Random.seed!(1234)
 MYC_object2 = Sim(2, 70e3, 10e3, 1000, 0.9, 4)
 MYC_object2 = add_ctcf(MYC_object2, "+", 4899, 1)
-MYC_object2 = add_ctcf(MYC_object2, "+", 16853, 1)
 MYC_object2 = add_ctcf(MYC_object2, "-", 22150, 1)
 
-dists2 = effective_dist(MYC_object2)
-contacts2 = (effective_dist(MYC_object2).+10).^(-1)
+results2 = run_simulation(MYC_object2, 1000, 20000, 1:70, 1:70, false)
 
-a=15
-b=64
-dists_a_to_b2 = [effective_dist(MYC_object2)[a,b]]
+avg_contacts = mean(results[2])
+plot(heatmap(log.(avg_contacts)))
 
-for i in 1:20000
-    advance(MYC_object2)
-    dists2 = dists2 + effective_dist(MYC_object2)
-    contacts2 = contacts2 + ((effective_dist(MYC_object2).+10).^(-1))
-    dists_a_to_b2 = push!(dists_a_to_b2, effective_dist(MYC_object2)[a,b])
-end
-dists2 = dists2/20001
-contacts2 = contacts2/20001
+avg_contacts2 = mean(results2[2])
+plot(heatmap(log.(avg_contacts2)))
 
-plot(heatmap(log.(contacts)))
+avg_dists = mean(results[1])
+plot(avg_dists[15,:])
 
-plot(heatmap(log.(contacts2)))
+avg_dists2 = mean(results2[1])
+plot!(avg_dists2[15,:])
 
-plot(dists[15,:])
-plot!(dists2[15,:])
 xlabel!("Bead number")
 ylabel!("Average effective distance with bead 15")
 
-histogram(dists_a_to_b, bins=25)
-ylims!(0, 5000)
+dists_15_to_64 = map(x -> x[15,64], results[1])
+histogram(dists_15_to_64, bins=25)
+ylims!(0, 6000)
+xlims!(0,50)
 xlabel!("Effective distance between beads 15 and 64")
 ylabel!("Frequency")
 
-histogram(dists_a_to_b2, bins=25)
-ylims!(0, 5000)
+dists_15_to_64_2 = map(x -> x[15,64], results2[1])
+histogram(dists_15_to_64_2, bins=25)
+ylims!(0, 6000)
+xlims!(0,50)
 xlabel!("Effective distance between beads 15 and 64")
+ylabel!("Frequency")
+
+contacts_15_to_64 = map(x -> x[15,64], results[2])
+histogram(contacts_15_to_64, bins=25)
+ylims!(0, 20000)
+xlims!(0,0.20)
+xlabel!("Contacts between beads 15 and 64")
+ylabel!("Frequency")
+
+contacts_15_to_64_2 = map(x -> x[15,64], results2[2])
+histogram(contacts_15_to_64_2, bins=5)
+ylims!(0, 20000)
+xlims!(0,0.20)
+xlabel!("Contacts between beads 15 and 64")
 ylabel!("Frequency")
